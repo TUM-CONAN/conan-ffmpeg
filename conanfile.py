@@ -507,6 +507,38 @@ class FFMpegConan(ConanFile):
             return {"cc": "cl.exe", "cxx": "cl.exe"}
         return {}
 
+    @property
+    def _android_ndk_bin(self):
+        ndk_path = self.conf.get("tools.android:ndk_path", check_type=str)
+        if not ndk_path:
+            return None
+        return os.path.join(ndk_path, "toolchains", "llvm", "prebuilt", "darwin-x86_64", "bin")
+
+    @property
+    def _android_compilers(self):
+        if self.settings.os != "Android":
+            return {}
+        ndk_bin = self._android_ndk_bin
+        api_level = self.settings.get_safe("os.api_level")
+        if not ndk_bin or not api_level:
+            return {}
+
+        target = {
+            "armv8": "aarch64-linux-android",
+        }.get(str(self.settings.arch))
+        if not target:
+            return {}
+
+        return {
+            "cc": os.path.join(ndk_bin, f"{target}{api_level}-clang"),
+            "cxx": os.path.join(ndk_bin, f"{target}{api_level}-clang++"),
+            "as": os.path.join(ndk_bin, f"{target}{api_level}-clang"),
+            "ar": os.path.join(ndk_bin, "llvm-ar"),
+            "nm": os.path.join(ndk_bin, "llvm-nm"),
+            "ranlib": os.path.join(ndk_bin, "llvm-ranlib"),
+            "strip": os.path.join(ndk_bin, "llvm-strip"),
+        }
+
     def _create_toolchain(self):
         tc = AutotoolsToolchain(self)
         # Custom configure script of ffmpeg understands:
@@ -616,6 +648,16 @@ class FFMpegConan(ConanFile):
                 "gpl", self.options.with_libx264 or self.options.with_libx265 or self.options.postproc)
         ]
 
+        if (self.settings.os == "Android"
+                and self.settings.arch == "armv8"
+                and not self.options.shared
+                and self.options.get_safe("fPIC", True)
+                and self.options.with_asm):
+            # FFmpeg 6.1 AArch64 NEON objects are not PIC-safe when the static
+            # archives are linked into a shared Android consumer.
+            self.output.info("Disabling FFmpeg asm for Android armv8 static fPIC builds")
+            args.append("--disable-asm")
+
         # Individual Component Options
         opt_append_disable_if_set(args, "everything", self.options.disable_everything)
         opt_append_disable_if_set(args, "encoders", self.options.disable_all_encoders)
@@ -694,29 +736,30 @@ class FFMpegConan(ConanFile):
         # since ffmpeg"s build system ignores CC and CXX
         compilers_from_conf = self.conf.get("tools.build:compiler_executables", default={}, check_type=dict)
         buildenv_vars = VirtualBuildEnv(self).vars()
-        nm = buildenv_vars.get("NM")
+        android_compilers = self._android_compilers
+        nm = android_compilers.get("nm") or buildenv_vars.get("NM")
         if nm:
             args.append(f"--nm={unix_path(self, nm)}")
-        ar = buildenv_vars.get("AR")
+        ar = android_compilers.get("ar") or buildenv_vars.get("AR")
         if ar:
             args.append(f"--ar={unix_path(self, ar)}")
         if self.options.with_asm:
-            asm = compilers_from_conf.get("asm", buildenv_vars.get("AS"))
+            asm = compilers_from_conf.get("asm", android_compilers.get("as") or buildenv_vars.get("AS"))
             if asm:
                 args.append(f"--as={unix_path(self, asm)}")
-        strip = buildenv_vars.get("STRIP")
+        strip = android_compilers.get("strip") or buildenv_vars.get("STRIP")
         if strip:
             args.append(f"--strip={unix_path(self, strip)}")
-        cc = compilers_from_conf.get("c", buildenv_vars.get("CC", self._default_compilers.get("cc")))
+        cc = compilers_from_conf.get("c", android_compilers.get("cc") or buildenv_vars.get("CC", self._default_compilers.get("cc")))
         if cc:
             args.append(f"--cc={unix_path(self, cc)}")
-        cxx = compilers_from_conf.get("cpp", buildenv_vars.get("CXX", self._default_compilers.get("cxx")))
+        cxx = compilers_from_conf.get("cpp", android_compilers.get("cxx") or buildenv_vars.get("CXX", self._default_compilers.get("cxx")))
         if cxx:
             args.append(f"--cxx={unix_path(self, cxx)}")
-        ld = buildenv_vars.get("LD")
+        ld = android_compilers.get("ld") or buildenv_vars.get("LD")
         if ld:
             args.append(f"--ld={unix_path(self, ld)}")
-        ranlib = buildenv_vars.get("RANLIB")
+        ranlib = android_compilers.get("ranlib") or buildenv_vars.get("RANLIB")
         if ranlib:
             args.append(f"--ranlib={unix_path(self, ranlib)}")
         # for some reason pkgconf from conan can't find .pc files on Linux in the context of ffmpeg configure...
