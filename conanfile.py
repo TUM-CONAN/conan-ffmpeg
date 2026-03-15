@@ -171,6 +171,8 @@ class FFMpegConan(ConanFile):
         "with_xcb": [True, False],
         "with_cuda": [True, False],
         "with_cuvid": [True, False],
+        "with_mediacodec": [True, False],
+        "with_jni": [True, False],
         "with_appkit": [True, False],
         "with_avfoundation": [True, False],
         "with_coreimage": [True, False],
@@ -250,6 +252,8 @@ class FFMpegConan(ConanFile):
         "with_cuda": True,
         "with_cuvid": True,
         "with_xcb": False,
+        "with_mediacodec": False,
+        "with_jni": False,
         "with_appkit": True,
         "with_avfoundation": True,
         "with_coreimage": True,
@@ -318,6 +322,7 @@ class FFMpegConan(ConanFile):
             "with_libmp3lame": ["avcodec"],
             "with_libfdk_aac": ["avcodec"],
             "with_libwebp": ["avcodec"],
+            "with_mediacodec": ["avcodec"],
             "with_freetype": ["avfilter"],
             "with_zeromq": ["avfilter", "avformat"],
             "with_libalsa": ["avdevice"],
@@ -343,6 +348,9 @@ class FFMpegConan(ConanFile):
             del self.options.with_xcb
             del self.options.with_libalsa
             del self.options.with_pulse
+        if self.settings.os != "Android":
+            del self.options.with_mediacodec
+            del self.options.with_jni
         if self.settings.os != "Macos":
             del self.options.with_appkit
         if self.settings.os not in ["Macos", "iOS", "tvOS"]:
@@ -641,6 +649,8 @@ class FFMpegConan(ConanFile):
                                self.options.with_ssl == "securetransport"),
             opt_enable_disable("cuda", self.options.get_safe("with_cuda")),
             opt_enable_disable("cuvid", self.options.get_safe("with_cuvid")),
+            opt_enable_disable("mediacodec", self.options.get_safe("with_mediacodec")),
+            opt_enable_disable("jni", self.options.get_safe("with_jni")),
             # Licenses
             opt_enable_disable("nonfree", self.options.with_libfdk_aac or (self.options.with_ssl and (
                 self.options.with_libx264 or self.options.with_libx265 or self.options.postproc))),
